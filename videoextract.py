@@ -16,6 +16,7 @@ import pymorphy2
 import operator
 import pystardict  as pyd
 import xml.etree.ElementTree as ET
+import genanki
 
 # To remove punctuation
 table = str.maketrans(dict.fromkeys(string.punctuation))
@@ -35,18 +36,13 @@ def translation_from_stardict(line):
     translationNode = root.find("dtrn")
     if translationNode != None:
         return translationNode.text
-    else:
-        return "X"
 
 def translation_fallback(line):
     """The Russian English dic is much less structured"""
     xml = "<root>"+line+"</root>"
     root = ET.fromstring(xml)
     transla = list(root.itertext())
-    if len(transla) == 2:
-        return transla[1]
-    else:
-        return "X"
+    return transla[1]
 
 def translate(word):
     if dictRusFrench.has_key(word):
@@ -55,18 +51,49 @@ def translate(word):
         return translation_from_stardict(dictRusEnglish[word])
     elif dictRusEnglishLarge.has_key(word):
         return translation_fallback(dictRusEnglishLarge[word].replace("\n", ""))
-    else:
-        return "X"
+
+# Anki stuff
+smodel = genanki.Model(
+    1897425995,
+    "Russian -> French",
+    fields=[
+    {'name': 'Question'},
+    {'name': "Example"},
+    {'name': 'Answer'},
+  ],
+  templates=[
+    {
+      'name': 'Card 1',
+      'qfmt': '{{Question}}</br>{{Example}}',
+      'afmt': '{{FrontSide}}<hr id="answer">{{Answer}}',
+    },
+  ]
+)
+
+def gen_note(word, translation, contextSentence):
+    return genanki.Note(
+        model = smodel,
+        fields=[word, contextSentence, translation]
+    )
+
+def gen_dek(title, words, translations, contextSentences):
+    """Insert Note by frequency"""
+    deck = genanki.Deck(1778812731, title)
+    for (word,_) in sorted(words.items(), key=operator.itemgetter(1), reverse=True):
+        if translations[word] is not None:
+            deck.add_note(gen_note(word, translations[word], contextSentences[word]))
+    return deck
+
+def add_new_words(knownWordFile, words):
+    """Add new words to the known words file"""
+    with open(knownWordFile, "a") as file:
+        for word in words.keys():
+            file.write(word + "\n")
 
 
-
-def process_subtitle(subfile, words):
+def process_subtitle(subfile, knownWordsFile):
     extension = pathlib.Path(subfile).suffix
 
-    # Dictionnary of known words
-    knownWordsFile = "knownWords.txt"
-    if words:
-        knownWordsFile = words
     # Load it in memory
     knownWords = set()
     for line in open(knownWordsFile, "r"):
@@ -81,6 +108,9 @@ def process_subtitle(subfile, words):
     # Subs
     words = dict()
     translations=dict()
+    #Keep a sentence with the word in context
+    # Only keep the longest one
+    contextSentences=dict()
     for sub in subs:
         # Remove punctuation
         line = sub.text.translate(table)
@@ -95,10 +125,15 @@ def process_subtitle(subfile, words):
             # Only keep it if we do not it yet
             if normal_form not in knownWords:
                 words[normal_form] = words.get(normal_form, 1) + 1
+                # Add an example sentence of needed
+                currentExample = contextSentences.get(normal_form, "")
+                currentExampleLength = len(currentExample.translate(table).split())
+                if  len(tokens) > currentExampleLength:
+                    contextSentences[normal_form] = sub.text
 
 
     #print(sorted(words.items(), key=operator.itemgetter(1), reverse=True))
-    return (words, translations)
+    return (words, translations, contextSentences)
 
 
 # Command line
@@ -109,6 +144,19 @@ if __name__ == '__main__':
     parser.add_argument('--dict', help='Dictionnary for translations')
     args = parser.parse_args()
 
-    words, translations = process_subtitle(args.subfile, args.words)
-    print(words)
-    print(translations)
+    # Dictionnary of known words
+    knownWordsFile = "knownWords.txt"
+    if args.words:
+        knownWordsFile = args.words
+
+    print("Processing subtitles ", args.subfile)
+    words, translations, contextSentences = process_subtitle(args.subfile, knownWordsFile)
+    #print(words)
+    #print(translations)
+    title = pathlib.Path(args.subfile).stem
+    print("Generate deck")
+    deck =gen_dek(title, words, translations, contextSentences)
+    print("Save deck")
+    genanki.Package(deck).write_to_file(pathlib.Path(args.subfile).with_suffix(".apkg"))
+    print("Updating known words with new words")
+    add_new_words(knownWordsFile, words)
