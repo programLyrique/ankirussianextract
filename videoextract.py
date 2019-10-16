@@ -64,10 +64,37 @@ smodel = genanki.Model(
   templates=[
     {
       'name': 'Card 1',
-      'qfmt': '{{Question}}</br>{{Example}}',
+      'qfmt': '<div class="ques">{{Question}}</div></br><div class="example">{{Example}}</div>',
       'afmt': '{{FrontSide}}<hr id="answer">{{Answer}}',
     },
-  ]
+  ],
+  css="""
+    .card {text-align:center;}
+    .ques  {font-weight: bold;}
+    .example  {font-style: italic;}
+  """
+)
+
+rmodel = genanki.Model(
+    1710758133,
+    "French -> Russian",
+    fields=[
+    {'name': 'Question'},
+    {'name': "Example"},
+    {'name': 'Answer'},
+  ],
+  templates=[
+    {
+      'name': 'Card 1',
+      'qfmt': '<div class="ques">{{Question}}</div>',
+      'afmt': '{{FrontSide}}<hr id="answer">{{Answer}}</br><div class="example">{{Example}}</div>',
+    },
+  ],
+  css="""
+    .card {text-align:center;}
+    .ques {font-weight: bold;}
+    .example {font-style: italic;}
+  """
 )
 
 def gen_note(word, translation, contextSentence):
@@ -120,11 +147,11 @@ def process_subtitle(subfile, knownWordsFile):
             tok = token.lower()
             #normalize
             normal_form = morph.parse(tok)[0].normal_form
-            if normal_form not in translations:
-                translations[normal_form] = translate(normal_form)
             # Only keep it if we do not it yet
             if normal_form not in knownWords:
                 words[normal_form] = words.get(normal_form, 1) + 1
+                if normal_form not in translations:
+                    translations[normal_form] = translate(normal_form)
                 # Add an example sentence of needed
                 currentExample = contextSentences.get(normal_form, "")
                 currentExampleLength = len(currentExample.translate(table).split())
@@ -153,6 +180,7 @@ if __name__ == '__main__':
     words, translations, contextSentences = process_subtitle(args.subfile, knownWordsFile)
     #print(words)
     #print(translations)
+    print("New words: ", len(words), " with ", len(translations), " translations")
     title = pathlib.Path(args.subfile).stem
     print("Generate deck")
     deck =gen_dek(title, words, translations, contextSentences)
